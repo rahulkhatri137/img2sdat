@@ -43,7 +43,7 @@ class Options(object):
         "darwin": "out/host/darwin-x86",
     }
 
-    self.search_path = platform_search_path.get(sys.platform, None)
+    self.search_path = platform_search_path.get(sys.platform)
     self.signapk_path = "framework/signapk.jar"  # Relative to search_path
     self.signapk_shared_library_path = "lib64"   # Relative to search_path
     self.extra_signapk_args = []
@@ -138,14 +138,14 @@ def LoadInfoDict(input_file, input_dir=None):
   def read_helper(fn):
     if isinstance(input_file, zipfile.ZipFile):
       return input_file.read(fn)
-    else:
-      path = os.path.join(input_file, *fn.split("/"))
-      try:
-        with open(path) as f:
-          return f.read()
-      except IOError as e:
-        if e.errno == errno.ENOENT:
-          raise KeyError(fn)
+    path = os.path.join(input_file, *fn.split("/"))
+    try:
+      with open(path) as f:
+        return f.read()
+    except IOError as e:
+      if e.errno == errno.ENOENT:
+        raise KeyError(fn)
+
   d = {}
   try:
     d = LoadDictionaryFromLines(read_helper("META/misc_info.txt").split("\n"))
@@ -218,8 +218,7 @@ def LoadInfoDict(input_file, input_dir=None):
       if os.path.exists(system_base_fs_file):
         d["system_base_fs_file"] = system_base_fs_file
       else:
-        print("Warning: failed to find system base fs file: %s" % (
-            system_base_fs_file,))
+        print(f"Warning: failed to find system base fs file: {system_base_fs_file}")
         del d["system_base_fs_file"]
 
     if "vendor_base_fs_file" in d:
@@ -228,8 +227,7 @@ def LoadInfoDict(input_file, input_dir=None):
       if os.path.exists(vendor_base_fs_file):
         d["vendor_base_fs_file"] = vendor_base_fs_file
       else:
-        print("Warning: failed to find vendor base fs file: %s" % (
-            vendor_base_fs_file,))
+        print(f"Warning: failed to find vendor base fs file: {vendor_base_fs_file}")
         del d["vendor_base_fs_file"]
 
   try:
@@ -243,7 +241,7 @@ def LoadInfoDict(input_file, input_dir=None):
       if name == "blocksize":
         d[name] = value
       else:
-        d[name + "_size"] = value
+        d[f"{name}_size"] = value
   except KeyError:
     pass
 
@@ -273,7 +271,7 @@ def LoadBuildProp(read_helper):
   try:
     data = read_helper("SYSTEM/build.prop")
   except KeyError:
-    print("Warning: could not find SYSTEM/build.prop in %s" % zip)
+    print(f"Warning: could not find SYSTEM/build.prop in {zip}")
     data = ""
   return LoadDictionaryFromLines(data.split("\n"))
 
@@ -416,8 +414,8 @@ def _BuildBootableImage(sourcedir, fs_config_file, info_dict=None,
 
     p2.wait()
     p1.wait()
-    assert p1.returncode == 0, "mkbootfs of %s ramdisk failed" % (sourcedir,)
-    assert p2.returncode == 0, "minigzip of %s ramdisk failed" % (sourcedir,)
+    assert p1.returncode == 0, f"mkbootfs of {sourcedir} ramdisk failed"
+    assert p2.returncode == 0, f"minigzip of {sourcedir} ramdisk failed"
 
     return ramdisk_img
 
@@ -480,12 +478,12 @@ def _BuildBootableImage(sourcedir, fs_config_file, info_dict=None,
 
   p = Run(cmd, stdout=subprocess.PIPE)
   p.communicate()
-  assert p.returncode == 0, "mkbootimg of %s image failed" % (
-      os.path.basename(sourcedir),)
+  assert (p.returncode == 0
+          ), f"mkbootimg of {os.path.basename(sourcedir)} image failed"
 
   if (info_dict.get("boot_signer", None) == "true" and
       info_dict.get("verity_key", None)):
-    path = "/" + os.path.basename(sourcedir).lower()
+    path = f"/{os.path.basename(sourcedir).lower()}"
     cmd = [OPTIONS.boot_signer_path]
     cmd.extend(OPTIONS.boot_signer_args)
     cmd.extend([path, img.name,
@@ -493,11 +491,10 @@ def _BuildBootableImage(sourcedir, fs_config_file, info_dict=None,
                 info_dict["verity_key"] + ".x509.pem", img.name])
     p = Run(cmd, stdout=subprocess.PIPE)
     p.communicate()
-    assert p.returncode == 0, "boot_signer of %s image failed" % path
+    assert p.returncode == 0, f"boot_signer of {path} image failed"
 
-  # Sign the image if vboot is non-empty.
   elif info_dict.get("vboot", None):
-    path = "/" + os.path.basename(sourcedir).lower()
+    path = f"/{os.path.basename(sourcedir).lower()}"
     img_keyblock = tempfile.NamedTemporaryFile()
     cmd = [info_dict["vboot_signer_cmd"], info_dict["futility"],
            img_unsigned.name, info_dict["vboot_key"] + ".vbpubk",
@@ -507,7 +504,7 @@ def _BuildBootableImage(sourcedir, fs_config_file, info_dict=None,
            img.name]
     p = Run(cmd, stdout=subprocess.PIPE)
     p.communicate()
-    assert p.returncode == 0, "vboot_signer of %s image failed" % path
+    assert p.returncode == 0, f"vboot_signer of {path} image failed"
 
     # Clean up the temp files.
     img_unsigned.close()
@@ -533,15 +530,15 @@ def GetBootableImage(name, prebuilt_name, unpack_dir, tree_subdir,
 
   prebuilt_path = os.path.join(unpack_dir, "BOOTABLE_IMAGES", prebuilt_name)
   if os.path.exists(prebuilt_path):
-    print("using prebuilt %s from BOOTABLE_IMAGES..." % (prebuilt_name,))
+    print(f"using prebuilt {prebuilt_name} from BOOTABLE_IMAGES...")
     return File.FromLocalFile(name, prebuilt_path)
 
   prebuilt_path = os.path.join(unpack_dir, "IMAGES", prebuilt_name)
   if os.path.exists(prebuilt_path):
-    print("using prebuilt %s from IMAGES..." % (prebuilt_name,))
+    print(f"using prebuilt {prebuilt_name} from IMAGES...")
     return File.FromLocalFile(name, prebuilt_path)
 
-  print("building image from target_files %s..." % (tree_subdir,))
+  print(f"building image from target_files {tree_subdir}...")
 
   if info_dict is None:
     info_dict = OPTIONS.info_dict
@@ -553,11 +550,13 @@ def GetBootableImage(name, prebuilt_name, unpack_dir, tree_subdir,
                  prebuilt_name != "boot.img" or
                  info_dict.get("recovery_as_boot") == "true")
 
-  fs_config = "META/" + tree_subdir.lower() + "_filesystem_config.txt"
-  data = _BuildBootableImage(os.path.join(unpack_dir, tree_subdir),
-                             os.path.join(unpack_dir, fs_config),
-                             info_dict, has_ramdisk)
-  if data:
+  fs_config = f"META/{tree_subdir.lower()}_filesystem_config.txt"
+  if data := _BuildBootableImage(
+      os.path.join(unpack_dir, tree_subdir),
+      os.path.join(unpack_dir, fs_config),
+      info_dict,
+      has_ramdisk,
+  ):
     return File(name, data)
   return None
 
@@ -587,9 +586,9 @@ def UnzipTemp(filename, pattern=None):
 
   m = re.match(r"^(.*[.]zip)\+(.*[.]zip)$", filename, re.IGNORECASE)
   if m:
-    unzip_to_dir(m.group(1), tmp)
-    unzip_to_dir(m.group(2), os.path.join(tmp, "BOOTABLE_IMAGES"))
-    filename = m.group(1)
+    unzip_to_dir(m[1], tmp)
+    unzip_to_dir(m[2], os.path.join(tmp, "BOOTABLE_IMAGES"))
+    filename = m[1]
   else:
     unzip_to_dir(filename, tmp)
 
@@ -604,43 +603,41 @@ def GetKeyPasswords(keylist):
   no_passwords = []
   need_passwords = []
   key_passwords = {}
-  devnull = open("/dev/null", "w+b")
-  for k in sorted(keylist):
-    # We don't need a password for things that aren't really keys.
-    if k in SPECIAL_CERT_STRINGS:
-      no_passwords.append(k)
-      continue
+  with open("/dev/null", "w+b") as devnull:
+    for k in sorted(keylist):
+      # We don't need a password for things that aren't really keys.
+      if k in SPECIAL_CERT_STRINGS:
+        no_passwords.append(k)
+        continue
 
-    p = Run(["openssl", "pkcs8", "-in", k+OPTIONS.private_key_suffix,
-             "-inform", "DER", "-nocrypt"],
-            stdin=devnull.fileno(),
-            stdout=devnull.fileno(),
-            stderr=subprocess.STDOUT)
-    p.communicate()
-    if p.returncode == 0:
-      # Definitely an unencrypted key.
-      no_passwords.append(k)
-    else:
       p = Run(["openssl", "pkcs8", "-in", k+OPTIONS.private_key_suffix,
-               "-inform", "DER", "-passin", "pass:"],
+               "-inform", "DER", "-nocrypt"],
               stdin=devnull.fileno(),
               stdout=devnull.fileno(),
-              stderr=subprocess.PIPE)
-      _, stderr = p.communicate()
+              stderr=subprocess.STDOUT)
+      p.communicate()
       if p.returncode == 0:
-        # Encrypted key with empty string as password.
-        key_passwords[k] = ''
-      elif stderr.startswith('Error decrypting key'):
-        # Definitely encrypted key.
-        # It would have said "Error reading key" if it didn't parse correctly.
-        need_passwords.append(k)
-      else:
-        # Potentially, a type of key that openssl doesn't understand.
-        # We'll let the routines in signapk.jar handle it.
+        # Definitely an unencrypted key.
         no_passwords.append(k)
-  devnull.close()
-
-  key_passwords.update(PasswordManager().GetPasswords(need_passwords))
+      else:
+        p = Run(["openssl", "pkcs8", "-in", k+OPTIONS.private_key_suffix,
+                 "-inform", "DER", "-passin", "pass:"],
+                stdin=devnull.fileno(),
+                stdout=devnull.fileno(),
+                stderr=subprocess.PIPE)
+        _, stderr = p.communicate()
+        if p.returncode == 0:
+          # Encrypted key with empty string as password.
+          key_passwords[k] = ''
+        elif stderr.startswith('Error decrypting key'):
+          # Definitely encrypted key.
+          # It would have said "Error reading key" if it didn't parse correctly.
+          need_passwords.append(k)
+        else:
+          # Potentially, a type of key that openssl doesn't understand.
+          # We'll let the routines in signapk.jar handle it.
+          no_passwords.append(k)
+  key_passwords |= PasswordManager().GetPasswords(need_passwords)
   key_passwords.update(dict.fromkeys(no_passwords, None))
   return key_passwords
 
@@ -653,14 +650,12 @@ def GetMinSdkVersion(apk_name):
   p = Run(["aapt", "dump", "badging", apk_name], stdout=subprocess.PIPE)
   output, err = p.communicate()
   if err:
-    raise ExternalError("Failed to obtain minSdkVersion: aapt return code %s"
-        % (p.returncode,))
+    raise ExternalError(
+        f"Failed to obtain minSdkVersion: aapt return code {p.returncode}")
 
   for line in output.split("\n"):
-    # Looking for lines such as sdkVersion:'23' or sdkVersion:'M'
-    m = re.match(r'sdkVersion:\'([^\']*)\'', line)
-    if m:
-      return m.group(1)
+    if m := re.match(r'sdkVersion:\'([^\']*)\'', line):
+      return m[1]
   raise ExternalError("No minSdkVersion returned by aapt")
 
 
@@ -678,8 +673,9 @@ def GetMinSdkVersionInt(apk_name, codename_to_api_level_map):
     if version in codename_to_api_level_map:
       return codename_to_api_level_map[version]
     else:
-      raise ExternalError("Unknown minSdkVersion: '%s'. Known codenames: %s"
-                          % (version, codename_to_api_level_map))
+      raise ExternalError(
+          f"Unknown minSdkVersion: '{version}'. Known codenames: {codename_to_api_level_map}"
+      )
 
 
 def SignFile(input_name, output_name, key, password, min_api_level=None,
@@ -704,19 +700,21 @@ def SignFile(input_name, output_name, key, password, min_api_level=None,
   java_library_path = os.path.join(
       OPTIONS.search_path, OPTIONS.signapk_shared_library_path)
 
-  cmd = [OPTIONS.java_path, OPTIONS.java_args,
-         "-Djava.library.path=" + java_library_path,
-         "-jar",
-         os.path.join(OPTIONS.search_path, OPTIONS.signapk_path)]
+  cmd = [
+      OPTIONS.java_path,
+      OPTIONS.java_args,
+      f"-Djava.library.path={java_library_path}",
+      "-jar",
+      os.path.join(OPTIONS.search_path, OPTIONS.signapk_path),
+  ]
   cmd.extend(OPTIONS.extra_signapk_args)
   if whole_file:
     cmd.append("-w")
 
   min_sdk_version = min_api_level
-  if min_sdk_version is None:
-    if not whole_file:
-      min_sdk_version = GetMinSdkVersionInt(
-          input_name, codename_to_api_level_map)
+  if min_sdk_version is None and not whole_file:
+    min_sdk_version = GetMinSdkVersionInt(
+        input_name, codename_to_api_level_map)
   if min_sdk_version is not None:
     cmd.extend(["--min-sdk-version", str(min_sdk_version)])
 
@@ -729,7 +727,7 @@ def SignFile(input_name, output_name, key, password, min_api_level=None,
     password += "\n"
   p.communicate(password)
   if p.returncode != 0:
-    raise ExternalError("signapk.jar failed: return code %s" % (p.returncode,))
+    raise ExternalError(f"signapk.jar failed: return code {p.returncode}")
 
 
 def CheckSize(data, target, info_dict):
@@ -739,7 +737,7 @@ def CheckSize(data, target, info_dict):
 
   if target.endswith(".img"):
     target = target[:-4]
-  mount_point = "/" + target
+  mount_point = f"/{target}"
 
   fs_type = None
   limit = None
@@ -751,7 +749,7 @@ def CheckSize(data, target, info_dict):
     device = p.device
     if "/" in device:
       device = device[device.rfind("/")+1:]
-    limit = info_dict.get(device + "_size", None)
+    limit = info_dict.get(f"{device}_size", None)
   if not fs_type or not limit:
     return
 
@@ -778,9 +776,9 @@ def ReadApkCerts(tf_zip):
     line = line.strip()
     if not line:
       continue
-    m = re.match(r'^name="(.*)"\s+certificate="(.*)"\s+'
-                 r'private_key="(.*)"$', line)
-    if m:
+    if m := re.match(
+        r'^name="(.*)"\s+certificate="(.*)"\s+'
+        r'private_key="(.*)"$', line):
       name, cert, privkey = m.groups()
       public_key_suffix_len = len(OPTIONS.public_key_suffix)
       private_key_suffix_len = len(OPTIONS.private_key_suffix)
@@ -832,17 +830,30 @@ def ParseOptions(argv,
 
   try:
     opts, args = getopt.getopt(
-        argv, "hvp:s:x:" + extra_opts,
-        ["help", "verbose", "path=", "signapk_path=",
-         "signapk_shared_library_path=", "extra_signapk_args=",
-         "java_path=", "java_args=", "public_key_suffix=",
-         "private_key_suffix=", "boot_signer_path=", "boot_signer_args=",
-         "verity_signer_path=", "verity_signer_args=", "device_specific=",
-         "extra="] +
-        list(extra_long_opts))
+        argv,
+        f"hvp:s:x:{extra_opts}",
+        [
+            "help",
+            "verbose",
+            "path=",
+            "signapk_path=",
+            "signapk_shared_library_path=",
+            "extra_signapk_args=",
+            "java_path=",
+            "java_args=",
+            "public_key_suffix=",
+            "private_key_suffix=",
+            "boot_signer_path=",
+            "boot_signer_args=",
+            "verity_signer_path=",
+            "verity_signer_args=",
+            "device_specific=",
+            "extra=",
+        ] + list(extra_long_opts),
+    )
   except getopt.GetoptError as err:
     Usage(docstring)
-    print("**", str(err), "**")
+    print("**", err, "**")
     sys.exit(2)
 
   for o, a in opts:
@@ -880,9 +891,8 @@ def ParseOptions(argv,
     elif o in ("-x", "--extra"):
       key, value = a.split("=", 1)
       OPTIONS.extras[key] = value
-    else:
-      if extra_option_handler is None or not extra_option_handler(o, a):
-        assert False, "unknown option \"%s\"" % (o,)
+    elif extra_option_handler is None or not extra_option_handler(o, a):
+      assert False, "unknown option \"%s\"" % (o,)
 
   if OPTIONS.search_path:
     os.environ["PATH"] = (os.path.join(OPTIONS.search_path, "bin") +
@@ -928,10 +938,7 @@ class PasswordManager(object):
 
     first = True
     while True:
-      missing = []
-      for i in items:
-        if i not in current or not current[i]:
-          missing.append(i)
+      missing = [i for i in items if i not in current or not current[i]]
       # Are all the passwords already in the file?
       if not missing:
         return current
@@ -940,7 +947,7 @@ class PasswordManager(object):
         current[i] = ""
 
       if not first:
-        print("key file %s still missing some passwords." % (self.pwfile,))
+        print(f"key file {self.pwfile} still missing some passwords.")
         answer = raw_input("try to edit again? [y]> ").strip()
         if answer and answer[0] not in 'yY':
           raise RuntimeError("key passwords unavailable")
@@ -948,7 +955,7 @@ class PasswordManager(object):
 
       current = self.UpdateAndReadFile(current)
 
-  def PromptResult(self, current): # pylint: disable=no-self-use
+  def PromptResult(self, current):  # pylint: disable=no-self-use
     """Prompt the user to enter a value (password) for each key in
     'current' whose value is fales.  Returns a new dict with all the
     values.
@@ -959,8 +966,7 @@ class PasswordManager(object):
         result[k] = v
       else:
         while True:
-          result[k] = getpass.getpass(
-              "Enter password for %s key> " % k).strip()
+          result[k] = getpass.getpass(f"Enter password for {k} key> ").strip()
           if result[k]:
             break
     return result
@@ -969,20 +975,18 @@ class PasswordManager(object):
     if not self.editor or not self.pwfile:
       return self.PromptResult(current)
 
-    f = open(self.pwfile, "w")
-    os.chmod(self.pwfile, 0o600)
-    f.write("# Enter key passwords between the [[[ ]]] brackets.\n")
-    f.write("# (Additional spaces are harmless.)\n\n")
+    with open(self.pwfile, "w") as f:
+      os.chmod(self.pwfile, 0o600)
+      f.write("# Enter key passwords between the [[[ ]]] brackets.\n")
+      f.write("# (Additional spaces are harmless.)\n\n")
 
-    first_line = None
-    sorted_list = sorted([(not v, k, v) for (k, v) in current.iteritems()])
-    for i, (_, k, v) in enumerate(sorted_list):
-      f.write("[[[  %s  ]]] %s\n" % (v, k))
-      if not v and first_line is None:
-        # position cursor on first line with no password.
-        first_line = i + 4
-    f.close()
-
+      first_line = None
+      sorted_list = sorted([(not v, k, v) for (k, v) in current.iteritems()])
+      for i, (_, k, v) in enumerate(sorted_list):
+        f.write("[[[  %s  ]]] %s\n" % (v, k))
+        if not v and first_line is None:
+          # position cursor on first line with no password.
+          first_line = i + 4
     p = Run([self.editor, "+%d" % (first_line,), self.pwfile])
     _, _ = p.communicate()
 
@@ -993,20 +997,18 @@ class PasswordManager(object):
     if self.pwfile is None:
       return result
     try:
-      f = open(self.pwfile, "r")
-      for line in f:
-        line = line.strip()
-        if not line or line[0] == '#':
-          continue
-        m = re.match(r"^\[\[\[\s*(.*?)\s*\]\]\]\s*(\S+)$", line)
-        if not m:
-          print("failed to parse password file: ", line)
-        else:
-          result[m.group(2)] = m.group(1)
-      f.close()
+      with open(self.pwfile, "r") as f:
+        for line in f:
+          line = line.strip()
+          if not line or line[0] == '#':
+            continue
+          if m := re.match(r"^\[\[\[\s*(.*?)\s*\]\]\]\s*(\S+)$", line):
+            result[m[2]] = m[1]
+          else:
+            print("failed to parse password file: ", line)
     except IOError as e:
       if e.errno != errno.ENOENT:
-        print("error reading password file: ", str(e))
+        print("error reading password file: ", e)
     return result
 
 
@@ -1198,9 +1200,8 @@ class File(object):
 
   @classmethod
   def FromLocalFile(cls, name, diskname):
-    f = open(diskname, "rb")
-    data = f.read()
-    f.close()
+    with open(diskname, "rb") as f:
+      data = f.read()
     return File(name, data)
 
   def WriteToTemp(self):
@@ -1316,12 +1317,9 @@ def ComputeDifferences(diffs):
         lock.acquire()
 
         tf, sf, patch = d.GetPatch()
-        if sf.name == tf.name:
-          name = tf.name
-        else:
-          name = "%s (%s)" % (tf.name, sf.name)
+        name = tf.name if sf.name == tf.name else f"{tf.name} ({sf.name})"
         if patch is None:
-          print("patching failed!                                  %s" % (name,))
+          print(f"patching failed!                                  {name}")
         else:
           print("%8.2f sec %8d / %8d bytes (%6.2f%%) %s" % (
               dur, len(patch), tf.size, 100.0 * len(patch) / tf.size, name))
@@ -1375,9 +1373,9 @@ class BlockDifference(object):
   def WriteScript(self, script, output_zip, progress=None):
     if not self.src:
       # write the output unconditionally
-      script.Print("Patching %s image unconditionally..." % (self.partition,))
+      script.Print(f"Patching {self.partition} image unconditionally...")
     else:
-      script.Print("Patching %s image after verification." % (self.partition,))
+      script.Print(f"Patching {self.partition} image after verification.")
 
     if progress:
       script.ShowProgress(progress, 0)
@@ -1393,7 +1391,7 @@ class BlockDifference(object):
     verification."""
 
     partition = self.partition
-    script.Print("Verifying %s..." % (partition,))
+    script.Print(f"Verifying {partition}...")
     ranges = self.tgt.care_map
     ranges_str = ranges.to_string_raw()
     script.AppendExtra('range_sha1("%s", "%s") == "%s" && '
@@ -1409,9 +1407,8 @@ class BlockDifference(object):
 
     # full OTA
     if not self.src:
-      script.Print("Image %s will be patched unconditionally." % (partition,))
+      script.Print(f"Image {partition} will be patched unconditionally.")
 
-    # incremental OTA
     else:
       if touched_blocks_only and self.version >= 3:
         ranges = self.touched_src_ranges
@@ -1425,14 +1422,7 @@ class BlockDifference(object):
         return
 
       ranges_str = ranges.to_string_raw()
-      if self.version >= 4:
-        script.AppendExtra(('if (range_sha1("%s", "%s") == "%s" || '
-                            'block_image_verify("%s", '
-                            'package_extract_file("%s.transfer.list"), '
-                            '"%s.new.dat", "%s.patch.dat")) then') % (
-                            self.device, ranges_str, expected_sha1,
-                            self.device, partition, partition, partition))
-      elif self.version == 3:
+      if self.version >= 4 or self.version == 3:
         script.AppendExtra(('if (range_sha1("%s", "%s") == "%s" || '
                             'block_image_verify("%s", '
                             'package_extract_file("%s.transfer.list"), '
@@ -1440,9 +1430,10 @@ class BlockDifference(object):
                             self.device, ranges_str, expected_sha1,
                             self.device, partition, partition, partition))
       else:
-        script.AppendExtra('if range_sha1("%s", "%s") == "%s" then' % (
-                           self.device, ranges_str, self.src.TotalSha1()))
-      script.Print('Verified %s image...' % (partition,))
+        script.AppendExtra(
+            f'if range_sha1("{self.device}", "{ranges_str}") == "{self.src.TotalSha1()}" then'
+        )
+      script.Print(f'Verified {partition} image...')
       script.AppendExtra('else')
 
       if self.version >= 4:
@@ -1454,7 +1445,7 @@ class BlockDifference(object):
         # this check fails, give an explicit log message about the partition
         # having been remounted R/W (the most likely explanation).
         if self.check_first_block:
-          script.AppendExtra('check_first_block("%s");' % (self.device,))
+          script.AppendExtra(f'check_first_block("{self.device}");')
 
         # If version >= 4, try block recovery before abort update
         if partition == "system":
@@ -1471,11 +1462,6 @@ class BlockDifference(object):
             'endif;').format(device=self.device, ranges=ranges_str,
                              partition=partition, code=code))
 
-      # Abort the OTA update. Note that the incremental OTA cannot be applied
-      # even if it may match the checksum of the target partition.
-      # a) If version < 3, operations like move and erase will make changes
-      #    unconditionally and damage the partition.
-      # b) If version >= 3, it won't even reach here.
       else:
         if partition == "system":
           code = ErrorCode.SYSTEM_VERIFICATION_FAILURE
@@ -1487,7 +1473,7 @@ class BlockDifference(object):
 
   def _WritePostInstallVerifyScript(self, script):
     partition = self.partition
-    script.Print('Verifying the updated %s image...' % (partition,))
+    script.Print(f'Verifying the updated {partition} image...')
     # Unlike pre-install verification, clobbered_blocks should not be ignored.
     ranges = self.tgt.care_map
     ranges_str = ranges.to_string_raw()
@@ -1499,10 +1485,10 @@ class BlockDifference(object):
     # Verify that extended blocks are really zeroed out.
     if self.tgt.extended:
       ranges_str = self.tgt.extended.to_string_raw()
-      script.AppendExtra('if range_sha1("%s", "%s") == "%s" then' % (
-                         self.device, ranges_str,
-                         self._HashZeroBlocks(self.tgt.extended.size())))
-      script.Print('Verified the updated %s image.' % (partition,))
+      script.AppendExtra(
+          f'if range_sha1("{self.device}", "{ranges_str}") == "{self._HashZeroBlocks(self.tgt.extended.size())}" then'
+      )
+      script.Print(f'Verified the updated {partition} image.')
       if partition == "system":
         code = ErrorCode.SYSTEM_NONZERO_CONTENTS
       else:
@@ -1513,7 +1499,7 @@ class BlockDifference(object):
           'OTA update");\n'
           'endif;' % (code, partition))
     else:
-      script.Print('Verified the updated %s image.' % (partition,))
+      script.Print(f'Verified the updated {partition} image.')
 
     if partition == "system":
       code = ErrorCode.SYSTEM_UNEXPECTED_CONTENTS
@@ -1527,16 +1513,18 @@ class BlockDifference(object):
         'endif;' % (code, partition))
 
   def _WriteUpdate(self, script, output_zip):
-    ZipWrite(output_zip,
-             '{}.transfer.list'.format(self.path),
-             '{}.transfer.list'.format(self.partition))
-    ZipWrite(output_zip,
-             '{}.new.dat'.format(self.path),
-             '{}.new.dat'.format(self.partition))
-    ZipWrite(output_zip,
-             '{}.patch.dat'.format(self.path),
-             '{}.patch.dat'.format(self.partition),
-             compress_type=zipfile.ZIP_STORED)
+    ZipWrite(
+        output_zip,
+        f'{self.path}.transfer.list',
+        f'{self.partition}.transfer.list',
+    )
+    ZipWrite(output_zip, f'{self.path}.new.dat', f'{self.partition}.new.dat')
+    ZipWrite(
+        output_zip,
+        f'{self.path}.patch.dat',
+        f'{self.partition}.patch.dat',
+        compress_type=zipfile.ZIP_STORED,
+    )
 
     if self.partition == "system":
       code = ErrorCode.SYSTEM_UPDATE_FAILURE
@@ -1582,8 +1570,7 @@ PARTITION_TYPES = {
 }
 
 def GetTypeAndDevice(mount_point, info):
-  fstab = info["fstab"]
-  if fstab:
+  if fstab := info["fstab"]:
     return (PARTITION_TYPES[fstab[mount_point].fs_type],
             fstab[mount_point].device)
   else:
@@ -1601,8 +1588,7 @@ def ParseCertificate(data):
       cert.append(line)
     if "--BEGIN CERTIFICATE--" in line:
       save = True
-  cert = "".join(cert).decode('base64')
-  return cert
+  return "".join(cert).decode('base64')
 
 def MakeRecoveryPatch(input_dir, output_sink, recovery_img, boot_img,
                       info_dict=None):
@@ -1631,8 +1617,7 @@ def MakeRecoveryPatch(input_dir, output_sink, recovery_img, boot_img,
     diff_program = ["imgdiff"]
     path = os.path.join(input_dir, "SYSTEM", "etc", "recovery-resource.dat")
     if os.path.exists(path):
-      diff_program.append("-b")
-      diff_program.append(path)
+      diff_program.extend(("-b", path))
       bonus_args = "-b /system/etc/recovery-resource.dat"
     else:
       bonus_args = ""
@@ -1694,9 +1679,8 @@ fi
 
     with open(os.path.join(init_rc_dir, init_rc_file)) as f:
       for line in f:
-        m = re.match(r"^service flash_recovery /system/(\S+)\s*$", line)
-        if m:
-          sh_location = m.group(1)
+        if m := re.match(r"^service flash_recovery /system/(\S+)\s*$", line):
+          sh_location = m[1]
           found = True
           break
 

@@ -48,13 +48,10 @@ class RangeSet(object):
     return bool(self.data)
 
   def __str__(self):
-    if not self.data:
-      return "empty"
-    else:
-      return self.to_string()
+    return self.to_string() if self.data else "empty"
 
   def __repr__(self):
-    return '<RangeSet("' + self.to_string() + '")>'
+    return f'<RangeSet("{self.to_string()}")>'
 
   @classmethod
   def parse(cls, text):
@@ -78,16 +75,14 @@ class RangeSet(object):
     for p in text.split():
       if "-" in p:
         s, e = (int(x) for x in p.split("-"))
-        data.append(s)
-        data.append(e+1)
+        data.extend((s, e+1))
         if last <= s <= e:
           last = e
         else:
           monotonic = False
       else:
         s = int(p)
-        data.append(s)
-        data.append(s+1)
+        data.extend((s, s+1))
         if last <= s:
           last = s+1
         else:
@@ -119,12 +114,12 @@ class RangeSet(object):
       if e == s+1:
         out.append(str(s))
       else:
-        out.append(str(s) + "-" + str(e-1))
+        out.append(f"{str(s)}-{str(e - 1)}")
     return " ".join(out)
 
   def to_string_raw(self):
     assert self.data
-    return str(len(self.data)) + "," + ",".join(str(i) for i in self.data)
+    return f"{len(self.data)}," + ",".join(str(i) for i in self.data)
 
   def union(self, other):
     """Return a new RangeSet representing the union of this RangeSet
@@ -265,7 +260,7 @@ class RangeSet(object):
       s, e = self.data[i:i+2]
       s1 = max(0, s - n)
       e1 = e + n
-      out = out.union(RangeSet(str(s1) + "-" + str(e1-1)))
+      out = out.union(RangeSet(f"{str(s1)}-{str(e1 - 1)}"))
     return out
 
   def first(self, n):

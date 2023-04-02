@@ -80,20 +80,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     INPUT_IMAGE = args.image
-    
-    if args.outdir:
-        OUTDIR = args.outdir
-    else:
-        OUTDIR = '.'
 
-    if args.version:
-        VERSION = int(args.version)
-    else:
-        VERSION = None
-    
-    if args.prefix:
-        PREFIX = args.prefix
-    else:
-        PREFIX = 'system'
-    
+    OUTDIR = args.outdir or '.'
+    VERSION = int(args.version) if args.version else None
+    PREFIX = args.prefix or 'system'
     main(INPUT_IMAGE, OUTDIR, VERSION, PREFIX)

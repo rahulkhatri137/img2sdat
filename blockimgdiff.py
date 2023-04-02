@@ -61,7 +61,7 @@ def compute_patch(src, tgt, imgdiff=False):
       p = subprocess.call(["bsdiff", srcfile, tgtfile, patchfile])
 
     if p:
-      raise ValueError("diff failed: " + str(p))
+      raise ValueError(f"diff failed: {str(p)}")
 
     with open(patchfile, "rb") as f:
       return f.read()
@@ -130,10 +130,7 @@ class DataImage(Image):
     # unchanged for an incremental, but would fail the post-install
     # verification if it has non-zero contents in the padding bytes.
     # Bug: 23828506
-    if padded:
-      clobbered_blocks = [self.total_blocks-1, self.total_blocks]
-    else:
-      clobbered_blocks = []
+    clobbered_blocks = [self.total_blocks-1, self.total_blocks] if padded else []
     self.clobbered_blocks = clobbered_blocks
     self.extended = RangeSet()
 
@@ -144,15 +141,12 @@ class DataImage(Image):
     for i in range(self.total_blocks-1 if padded else self.total_blocks):
       d = self.data[i*self.blocksize : (i+1)*self.blocksize]
       if d == reference:
-        zero_blocks.append(i)
-        zero_blocks.append(i+1)
+        zero_blocks.extend((i, i+1))
       else:
-        nonzero_blocks.append(i)
-        nonzero_blocks.append(i+1)
-
+        nonzero_blocks.extend((i, i+1))
     assert zero_blocks or nonzero_blocks or clobbered_blocks
 
-    self.file_map = dict()
+    self.file_map = {}
     if zero_blocks:
       self.file_map["__ZERO"] = RangeSet(data=zero_blocks)
     if nonzero_blocks:
@@ -164,11 +158,10 @@ class DataImage(Image):
     return [self.data[s*self.blocksize:e*self.blocksize] for (s, e) in ranges]
 
   def TotalSha1(self, include_clobbered_blocks=False):
-    if not include_clobbered_blocks:
-      ranges = self.care_map.subtract(self.clobbered_blocks)
-      return sha1(self.ReadRangeSet(ranges)).hexdigest()
-    else:
+    if include_clobbered_blocks:
       return sha1(self.data).hexdigest()
+    ranges = self.care_map.subtract(self.clobbered_blocks)
+    return sha1(self.ReadRangeSet(ranges)).hexdigest()
 
 
 class Transfer(object):
@@ -203,8 +196,7 @@ class Transfer(object):
     self.src_ranges = RangeSet()
 
   def __str__(self):
-    return (str(self.id) + ": <" + str(self.src_ranges) + " " + self.style +
-            " to " + str(self.tgt_ranges) + ">")
+    return f"{str(self.id)}: <{str(self.src_ranges)} {self.style} to {str(self.tgt_ranges)}>"
 
 
 @functools.total_ordering
@@ -433,7 +425,7 @@ class BlockImageDiff(object):
             free_size += sr.size()
           else:
             assert sh in stashes
-            src_str.append("%s:%s" % (sh, sr.to_string_raw()))
+            src_str.append(f"{sh}:{sr.to_string_raw()}")
             stashes[sh] -= 1
             if stashes[sh] == 0:
               free_size += sr.size()
@@ -557,7 +549,7 @@ class BlockImageDiff(object):
         stash_threshold = common.OPTIONS.stash_threshold
         max_allowed = cache_size * stash_threshold
         assert max_stashed_blocks * self.tgt.blocksize < max_allowed, \
-               'Stash size %d (%d * %d) exceeds the limit %d (%d * %.2f)' % (
+                 'Stash size %d (%d * %d) exceeds the limit %d (%d * %.2f)' % (
                    max_stashed_blocks * self.tgt.blocksize, max_stashed_blocks,
                    self.tgt.blocksize, max_allowed, cache_size,
                    stash_threshold)
@@ -598,7 +590,7 @@ class BlockImageDiff(object):
       out.insert(2, str(next_stash_id) + "\n")
       out.insert(3, str(max_stashed_blocks) + "\n")
 
-    with open(prefix + ".transfer.list", "wb") as f:
+    with open(f"{prefix}.transfer.list", "wb") as f:
       for i in out:
         f.write(i.encode("UTF-8"))
 
@@ -665,10 +657,10 @@ class BlockImageDiff(object):
       # ComputePatches(), they both have the style of "diff".
       if xf.style == "diff" and self.version >= 3:
         assert xf.tgt_ranges and xf.src_ranges
-        if xf.src_ranges.overlaps(xf.tgt_ranges):
-          if stashed_blocks + xf.src_ranges.size() > max_allowed:
-            replaced_cmds.append(xf)
-            print("%10d  %9s  %s" % (xf.src_ranges.size(), "implicit", xf))
+        if (xf.src_ranges.overlaps(xf.tgt_ranges)
+            and stashed_blocks + xf.src_ranges.size() > max_allowed):
+          replaced_cmds.append(xf)
+          print("%10d  %9s  %s" % (xf.src_ranges.size(), "implicit", xf))
 
       # Replace the commands in replaced_cmds with "new"s.
       for cmd in replaced_cmds:
@@ -692,7 +684,7 @@ class BlockImageDiff(object):
     print("Reticulating splines...")
     diff_q = []
     patch_num = 0
-    with open(prefix + ".new.dat", "wb") as new_f:
+    with open(f"{prefix}.new.dat", "wb") as new_f:
       for xf in self.transfers:
         if xf.style == "zero":
           pass
@@ -749,7 +741,7 @@ class BlockImageDiff(object):
             patch_num += 1
 
         else:
-          assert False, "unknown style " + xf.style
+          assert False, f"unknown style {xf.style}"
 
     if diff_q:
       if self.threads > 1:
@@ -772,10 +764,14 @@ class BlockImageDiff(object):
           size = len(patch)
           with lock:
             patches[patchnum] = (patch, xf)
-            print("%10d %10d (%6.2f%%) %7s %s" % (
-                size, tgt_size, size * 100.0 / tgt_size, xf.style,
-                xf.tgt_name if xf.tgt_name == xf.src_name else (
-                    xf.tgt_name + " (from " + xf.src_name + ")")))
+            print(("%10d %10d (%6.2f%%) %7s %s" % (
+                size,
+                tgt_size,
+                size * 100.0 / tgt_size,
+                xf.style,
+                xf.tgt_name if xf.tgt_name == xf.src_name else
+                f"{xf.tgt_name} (from {xf.src_name})",
+            )))
 
       threads = [threading.Thread(target=diff_worker)
                  for _ in range(self.threads)]
@@ -787,7 +783,7 @@ class BlockImageDiff(object):
       patches = []
 
     p = 0
-    with open(prefix + ".patch.dat", "wb") as patch_f:
+    with open(f"{prefix}.patch.dat", "wb") as patch_f:
       for patch, xf in patches:
         xf.patch_start = p
         xf.patch_len = len(patch)
@@ -983,8 +979,8 @@ class BlockImageDiff(object):
       heap.append(xf.heap_item)
     heapq.heapify(heap)
 
-    sinks = set(u for u in G if not u.outgoing)
-    sources = set(u for u in G if not u.incoming)
+    sinks = {u for u in G if not u.outgoing}
+    sources = {u for u in G if not u.incoming}
 
     def adjust_score(iu, delta):
       iu.score += delta
@@ -1068,7 +1064,7 @@ class BlockImageDiff(object):
             source_ranges[i] = b
           else:
             if not isinstance(source_ranges[i], set):
-              source_ranges[i] = set([source_ranges[i]])
+              source_ranges[i] = {source_ranges[i]}
             source_ranges[i].add(b)
 
     for a in self.transfers:
@@ -1086,15 +1082,8 @@ class BlockImageDiff(object):
       for b in intersections:
         if a is b: continue
 
-        # If the blocks written by A are read by B, then B needs to go before A.
-        i = a.tgt_ranges.intersect(b.src_ranges)
-        if i:
-          if b.src_name == "__ZERO":
-            # the cost of removing source blocks for the __ZERO domain
-            # is (nearly) zero.
-            size = 0
-          else:
-            size = i.size()
+        if i := a.tgt_ranges.intersect(b.src_ranges):
+          size = 0 if b.src_name == "__ZERO" else i.size()
           b.goes_before[a] = size
           a.goes_after[b] = size
 
