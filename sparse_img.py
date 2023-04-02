@@ -71,7 +71,7 @@ class SparseImage(object):
     self.offset_map = offset_map = []
     self.clobbered_blocks = rangelib.RangeSet(data=clobbered_blocks)
 
-    for i in range(total_chunks):
+    for _ in range(total_chunks):
       header_bin = f.read(12)
       header = struct.unpack("<2H2I", header_bin)
       chunk_type = header[0]
@@ -80,21 +80,18 @@ class SparseImage(object):
       data_sz = total_sz - 12
 
       if chunk_type == 0xCAC1:
-        if data_sz != (chunk_sz * blk_sz):
+        if data_sz != chunk_sz * blk_sz:
           raise ValueError(
               "Raw chunk input size (%u) does not match output size (%u)" %
               (data_sz, chunk_sz * blk_sz))
-        else:
-          care_data.append(pos)
-          care_data.append(pos + chunk_sz)
-          offset_map.append((pos, chunk_sz, f.tell(), None))
-          pos += chunk_sz
-          f.seek(data_sz, os.SEEK_CUR)
+        care_data.extend((pos, pos + chunk_sz))
+        offset_map.append((pos, chunk_sz, f.tell(), None))
+        pos += chunk_sz
+        f.seek(data_sz, os.SEEK_CUR)
 
       elif chunk_type == 0xCAC2:
         fill_data = f.read(4)
-        care_data.append(pos)
-        care_data.append(pos + chunk_sz)
+        care_data.extend((pos, pos + chunk_sz))
         offset_map.append((pos, chunk_sz, None, fill_data))
         pos += chunk_sz
 
@@ -146,7 +143,7 @@ class SparseImage(object):
     f.write(struct.pack("<2I", self.total_blocks, self.total_chunks))
 
   def ReadRangeSet(self, ranges):
-    return [d for d in self._GetRangeData(ranges)]
+    return list(self._GetRangeData(ranges))
 
   def TotalSha1(self, include_clobbered_blocks=False):
     """Return the SHA-1 hash of all data in the 'care' regions.
@@ -252,14 +249,9 @@ class SparseImage(object):
           f.seek(filepos, os.SEEK_SET)
           data = f.read(self.blocksize)
         else:
-          if fill_data == reference[:4]:   # fill with all zeros
-            data = reference
-          else:
-            data = None
-
+          data = reference if fill_data == reference[:4] else None
         if data == reference:
-          zero_blocks.append(b)
-          zero_blocks.append(b+1)
+          zero_blocks.extend((b, b+1))
         else:
           nonzero_blocks.append(b)
           nonzero_blocks.append(b+1)
